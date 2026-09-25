@@ -86,15 +86,28 @@
       border-radius: 8px;
       cursor: pointer;
       box-shadow: 0 4px 0 #1a237e;
-      transition: active 0.1s;
+      transition: transform 0.1s;
     }
     .btn:active {
       transform: translateY(4px);
       box-shadow: none;
     }
+    
+    /* シークレット枠ボタン演出 */
+    @keyframes secretGlow {
+      0% { box-shadow: 0 0 5px #ab47bc, 0 4px 0 #4a148c; }
+      50% { box-shadow: 0 0 15px #e1bee7, 0 4px 0 #4a148c; }
+      100% { box-shadow: 0 0 5px #ab47bc, 0 4px 0 #4a148c; }
+    }
     .btn-secret {
-      background: #8e24aa;
-      box-shadow: 0 4px 0 #4a148c;
+      background: linear-gradient(135deg, #4a148c, #8e24aa);
+      border: 1px solid #ba68c8;
+      animation: secretGlow 2s infinite ease-in-out;
+    }
+    .btn-locked {
+      background: #332244;
+      border: 1px dashed #7b1fa2;
+      color: #aaa;
     }
 
     /* バトル画面 */
@@ -316,7 +329,7 @@
       <button class="btn" onclick="selectChar('いわもと')">いわもと<br><small>バランス・留年</small></button>
       <button class="btn" onclick="selectChar('かげやま')">かげやま<br><small>りつガード・体当たり</small></button>
       <button class="btn" onclick="selectChar('かなやす')">かなやす<br><small>カウンター・高火力</small></button>
-      <button class="btn btn-secret" onclick="selectChar('いとうよ')">いとうよ<br><small>シークレット・ランダム</small></button>
+      <button class="btn btn-secret" id="btn-secret-char" onclick="clickSecretChar()">🔒 ？？？<br><small>シークレット</small></button>
     </div>
   </div>
 
@@ -383,7 +396,7 @@
   <div id="choice-modal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-title" id="modal-title">選択してください</div>
-      <div id="modal-desc" style="font-size:0.85rem; margin-bottom:10px;"></div>
+      <div id="modal-desc" style="font-size:0.85rem; margin-bottom:10px; text-align:left; line-height:1.5;"></div>
       <div class="modal-btns" id="modal-btns"></div>
     </div>
   </div>
@@ -414,16 +427,27 @@ const BASE_CHARS = {
 };
 
 let highScore = parseInt(localStorage.getItem('ikeda_highscore') || '0', 10);
+let isItoyoUnlocked = localStorage.getItem('ikeda_itoyo_unlocked') === 'true';
+let usedChars = JSON.parse(localStorage.getItem('ikeda_used_chars') || '[]');
 
 let gameState = {
   charName: '',
   player: {},
   ikeda: {},
-  ikedaCount: 0,
+  ikedaLevel: 0,      // いけだの番号・レベル
+  defeatedCount: 0,   // 実際に倒した撃破数（スコア）
   turn: 'player',
   isProcessing: false,
   itoyoSkills: []
 };
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
 
 function playBGM(id) {
   const t = document.getElementById('bgm-title');
@@ -443,13 +467,68 @@ function showScreen(id) {
   document.getElementById(id).classList.add('active');
 }
 
-function showTitle() {
+function checkItoyoUnlock() {
+  if (isItoyoUnlocked) return true;
+  const hasUsedAllThree = ['いわもと', 'かげやま', 'かなやす'].every(c => usedChars.includes(c));
+  if (hasUsedAllThree && highScore >= 20) {
+    isItoyoUnlocked = true;
+    localStorage.setItem('ikeda_itoyo_unlocked', 'true');
+    return true;
+  }
+  return false;
+}
+
+function updateTitleUI() {
+  checkItoyoUnlock();
   document.getElementById('title-highscore').innerText = highScore;
+  const btnSecret = document.getElementById('btn-secret-char');
+  if (isItoyoUnlocked) {
+    btnSecret.className = "btn btn-secret";
+    btnSecret.innerHTML = `いとうよ<br><small>シークレット・ランダム</small>`;
+  } else {
+    btnSecret.className = "btn btn-secret btn-locked";
+    btnSecret.innerHTML = `🔒 ？？？<br><small>シークレット</small>`;
+  }
+}
+
+function showTitle() {
+  updateTitleUI();
   showScreen('title-screen');
   playBGM('bgm-title');
 }
 
+function clickSecretChar() {
+  if (checkItoyoUnlock()) {
+    selectChar('いとうよ');
+  } else {
+    const hasIwamoto = usedChars.includes('いわもと') ? '✅' : '❌';
+    const hasKageyama = usedChars.includes('かげやま') ? '✅' : '❌';
+    const hasKanayasu = usedChars.includes('かなやす') ? '✅' : '❌';
+    const scoreCheck = highScore >= 20 ? '✅' : '❌';
+
+    const descHtml = `
+      <strong>【シークレット枠 解放条件】</strong><br>
+      1. 初期3キャラ全員でプレイする<br>
+      &nbsp;&nbsp;・いわもと: ${hasIwamoto}<br>
+      &nbsp;&nbsp;・かげやま: ${hasKageyama}<br>
+      &nbsp;&nbsp;・かなやす: ${hasKanayasu}<br>
+      2. 最高撃破数が20以上 (${scoreCheck} 現在: ${highScore}/20人)
+    `;
+
+    showModal('🔒 ？？？（シークレット）', descHtml, [
+      { text: '閉じる', btnClass: 'btn', cb: closeModal }
+    ]);
+  }
+}
+
 function selectChar(name) {
+  if (['いわもと', 'かげやま', 'かなやす'].includes(name)) {
+    if (!usedChars.includes(name)) {
+      usedChars.push(name);
+      localStorage.setItem('ikeda_used_chars', JSON.stringify(usedChars));
+    }
+  }
+
   gameState.charName = name;
   const base = BASE_CHARS[name];
   
@@ -466,17 +545,20 @@ function selectChar(name) {
     ryunanCount: base.ryunanCount || 0,
     tackleBoost: base.tackleBoost || 1.0,
     counterDur: base.counterDur || 2,
-    counterTurns: 0
+    counterTurns: 0,
+    counterCd: 0
   };
 
-  gameState.ikedaCount = 0;
+  gameState.ikedaLevel = 0;
+  gameState.defeatedCount = 0;
   playBGM('bgm-battle');
   initIkeda(0, true);
   showScreen('battle-screen');
 }
 
-/* 乗算スケーリングによる池田の生成（いけだ0のステータス2倍ベース） */
 function initIkeda(level, isFirstStart = false) {
+  gameState.ikedaLevel = level;
+  
   const baseHp = 180;
   const baseSpd = 12;
   const baseTol = 10;
@@ -493,6 +575,10 @@ function initIkeda(level, isFirstStart = false) {
   let iDrink = (isFirstStart || !gameState.ikeda.drink) ? 0 : ceil(gameState.ikeda.drink / 2);
 
   gameState.player.drink = pDrink;
+
+  // カウンター状態リセット
+  gameState.player.counterTurns = 0;
+  gameState.player.counterCd = 0;
 
   gameState.ikeda = {
     level: level,
@@ -536,9 +622,13 @@ function setupTurn() {
   if (gameState.turn === 'player') {
     addLog(`--- 自分のターン ---`, 'sys');
 
+    if (gameState.player.counterCd > 0) {
+      gameState.player.counterCd--;
+    }
+
     if (gameState.charName === 'いとうよ') {
       const allItoSkills = ['VIVANT！', '生の鶏肉', 'カニバリズム', 'あなたを無罪にして差し上げます', 'あなた人を殺しましたね', 'ご飯をあげる', '海苔をあげる'];
-      const shuffled = [...allItoSkills].sort(() => 0.5 - Math.random());
+      const shuffled = shuffleArray([...allItoSkills]);
       gameState.itoyoSkills = shuffled.slice(0, 2);
     }
     renderCommands();
@@ -561,13 +651,14 @@ function renderCommands() {
   ];
 
   if (gameState.charName === 'いわもと') {
-    cmds.push({ name: 'お腹を触らせる', sub: 'HP10%消費/成功70%' });
+    cmds.push({ name: 'お腹を触らせる', sub: 'みんな大好きのぼるのお腹' });
     cmds.push({ name: `留年 (${gameState.player.ryunanCount})`, sub: 'のぼるが留年する', disabled: gameState.player.ryunanCount <= 0 });
   } else if (gameState.charName === 'かげやま') {
     cmds.push({ name: '体当たり', sub: '酔っ払ったそうさんの体当たり' });
     cmds.push({ name: '勉強', sub: 'ちょっと冷静になる' });
   } else if (gameState.charName === 'かなやす') {
-    cmds.push({ name: 'カウンター', sub: 'ボクシングのわざ' });
+    const cdTxt = gameState.player.counterCd > 0 ? `(CT:${gameState.player.counterCd})` : '';
+    cmds.push({ name: `カウンター${cdTxt}`, sub: 'ボクシングのわざ', disabled: gameState.player.counterCd > 0 });
     cmds.push({ name: 'さすがです', sub: 'いけだ、良い飲みっぷり' });
   } else if (gameState.charName === 'いとうよ') {
     cmds.push({ name: gameState.itoyoSkills[0], sub: '特殊効果' });
@@ -601,7 +692,6 @@ function handleCommand(cmdName) {
   addLog(`${p.name}の 「${cmdName}」！`, 'p-act');
 
   if (cmdName === '殴る') {
-    // 新・計算式: パンチ力 / (1 + 酔い度 / 10)
     let dmg = ceil(p.punch / (1 + pDrunk / 10));
     e.hp = Math.max(0, e.hp - dmg);
     addLog(`いけだに ${dmg} のダメージ！`, 'dmg');
@@ -612,7 +702,6 @@ function handleCommand(cmdName) {
     e.drink += inc;
     addLog(`いけだに酒を飲ませた！（いけだの飲酒量 +${inc}）`, 'sys');
 
-    // 50%の確率で即座に倍返し飲みコール
     if (Math.random() < 0.5) {
       addLog(`いけだ「飲んだら飲ます！飲む飲む飲む！」 返杯の飲みコールだ！`, 'e-act');
       triggerCallModal(() => { finishPlayerTurn(); });
@@ -631,7 +720,7 @@ function handleCommand(cmdName) {
       return;
     }
 
-    if (Math.random() < 0.7) {
+    if (Math.random() < 0.8) {
       e.stunTurns = 2;
       addLog(`いけだはのぼるのお腹に夢中になっている！（2ターン行動不能）`, 'sys');
     } else {
@@ -656,12 +745,13 @@ function handleCommand(cmdName) {
     finishPlayerTurn();
   }
   else if (cmdName === '勉強') {
-    p.drink = Math.max(0, p.drink - 50);
+    p.drink = Math.max(0, Math.min(ceil(p.drink * 0.7), p.drink - 100));
     addLog(`勉強に集中して酔いが醒めた！（飲酒量 -50）`, 'sys');
     finishPlayerTurn();
   }
   else if (cmdName === 'カウンター') {
     p.counterTurns = p.counterDur;
+    p.counterCd = p.counterDur + 2;
     addLog(`かなやすはカウンター体勢に入った！（${p.counterTurns}ターン）`, 'sys');
     finishPlayerTurn();
   }
@@ -671,7 +761,6 @@ function handleCommand(cmdName) {
     finishPlayerTurn();
   }
   else if (cmdName === 'VIVANT！') {
-    // 即死確率 20% に調整
     if (Math.random() < 0.2) {
       e.hp = 0;
       addLog(`一撃必殺！ 別班の力が覚醒した！`, 'dmg');
@@ -693,11 +782,17 @@ function handleCommand(cmdName) {
     finishPlayerTurn();
   }
   else if (cmdName === 'カニバリズム') {
-    // 回復量を自分のパンチ力と同値に変更
-    let rec = p.punch;
+    let dmg = ceil(p.punch * 0.5);
+    e.hp = Math.max(0, e.hp - dmg);
+    let rec = dmg;
     p.hp = Math.min(p.maxHp, p.hp + rec);
-    e.hp = Math.max(0, e.hp - rec);
-    addLog(`いけだの腕を喰らった！ 自分HPが ${rec} 回復！`, 'sys');
+    let absorbedDrink = ceil(e.drink * 0.1);
+    p.drink += absorbedDrink;
+
+    addLog(`いけだの腕を喰らった！ いけだに ${dmg} ダメージ、自分HPが ${rec} 回復！`, 'sys');
+    if (absorbedDrink > 0) {
+      addLog(`いけだのアルコールが伝染した！（飲酒量 +${absorbedDrink}）`, 'dmg');
+    }
     finishPlayerTurn();
   }
   else if (cmdName === 'あなたを無罪にして差し上げます') {
@@ -705,7 +800,7 @@ function handleCommand(cmdName) {
     finishPlayerTurn();
   }
   else if (cmdName === 'あなた人を殺しましたね') {
-    addLog(`いけだ「な、なんだとー！」 いけだはいとうを殺害した！`, 'dmg');
+    addLog(`いけだ「な、なんだとー！」 いけだはいとうよを殺害した！`, 'dmg');
     p.hp = 0;
     finishPlayerTurn();
   }
@@ -738,7 +833,6 @@ function finishPlayerTurn() {
   setTimeout(setupTurn, 600);
 }
 
-/* ターン終了時の処理（池田のターン終了時のみ実行） */
 function finishTurnCycle() {
   const p = gameState.player;
   const e = gameState.ikeda;
@@ -805,7 +899,6 @@ function processIkedaTurn() {
   const eDrunk = e.drink / e.tol;
   const hpRatio = e.hp / e.maxHp;
 
-  // 新・逃亡確率（Math.sqrt で減衰を緩和）
   const escapeProb = ((1 - hpRatio) * 0.5) / (1 + Math.sqrt(eDrunk));
   const callProb = Math.min(0.5, 0.2 + 0.1 * (e.drink / 100));
 
@@ -924,7 +1017,6 @@ function handleIkedaCall() {
   triggerCallModal(() => { finishTurnCycle(); });
 }
 
-/* 飲みコールモーダル処理（断る時の消費体力にいけだの酔い度を相関） */
 function triggerCallModal(onComplete) {
   const e = gameState.ikeda;
   const p = gameState.player;
@@ -950,7 +1042,6 @@ function triggerCallModal(onComplete) {
       },
       { text: '断る', btnClass: 'btn', cb: () => {
           closeModal();
-          // いけだの酔い度に相関する計算式
           let cost = ceil((10 + e.level) * (1 + eDrunk * 0.1));
           p.hp -= cost;
           addLog(`コールを必死に断った！（体力 ${cost} 消費）`, 'sys');
@@ -961,21 +1052,25 @@ function triggerCallModal(onComplete) {
   );
 }
 
+/* 撃破成功時 */
 function winIkeda() {
-  gameState.ikedaCount++;
-  if (gameState.ikedaCount > highScore) {
-    highScore = gameState.ikedaCount;
+  gameState.defeatedCount++; // 撃破数のみカウントアップ
+  if (gameState.defeatedCount > highScore) {
+    highScore = gameState.defeatedCount;
     localStorage.setItem('ikeda_highscore', highScore);
   }
+  checkItoyoUnlock();
   nextIkedaStage(true);
 }
 
+/* 次のステージへの遷移 */
 function nextIkedaStage(gotKilled) {
+  gameState.ikedaLevel++; // 池田の番号（レベル）は倒した場合でも逃走された場合でも進む
   if (gotKilled) {
     showUpgradeMenu();
   } else {
-    gameState.ikedaCount++;
-    initIkeda(gameState.ikedaCount);
+    addLog(`いけだは逃走した！次のいけだ（いけだ${gameState.ikedaLevel}）が現れる…`, 'sys');
+    initIkeda(gameState.ikedaLevel);
   }
 }
 
@@ -989,8 +1084,8 @@ function showUpgradeMenu() {
   let options = [
     { text: '体力が1.1倍になる', action: () => { p.maxHp = ceil(p.maxHp * 1.1); p.hp = ceil(p.hp * 1.1); } },
     { text: '体力が1.2倍になる', action: () => { p.maxHp = ceil(p.maxHp * 1.2); p.hp = ceil(p.hp * 1.2); } },
-    { text: '走力が1.2倍になる', action: () => { p.speed = ceil(p.speed * 1.2); } },
-    { text: '走力が1.3倍になる', action: () => { p.speed = ceil(p.speed * 1.3); } },
+    { text: '走力が4倍になる', action: () => { p.speed = ceil(p.speed * 4); } },
+    { text: '走力が5倍になる', action: () => { p.speed = ceil(p.speed * 5); } },
     { text: '酒耐性が1.3倍になる', action: () => { p.tol = ceil(p.tol * 1.3); } },
     { text: 'パンチ力が1.2倍になる', action: () => { p.punch = ceil(p.punch * 1.2); } },
     { text: 'パンチ力が1.3倍になる', action: () => { p.punch = ceil(p.punch * 1.3); } },
@@ -1009,7 +1104,7 @@ function showUpgradeMenu() {
     options.push({ text: '【いとうよ】体力を2割回復', action: () => { p.hp = Math.min(p.maxHp, p.hp + ceil(p.maxHp * 0.2)); } });
   }
 
-  const shuffled = [...options].sort(() => 0.5 - Math.random()).slice(0, 4);
+  const shuffled = shuffleArray([...options]).slice(0, 4);
 
   shuffled.forEach(opt => {
     const btn = document.createElement('button');
@@ -1018,14 +1113,14 @@ function showUpgradeMenu() {
     btn.onclick = () => {
       opt.action();
       showScreen('battle-screen');
-      initIkeda(gameState.ikedaCount);
+      initIkeda(gameState.ikedaLevel);
     };
     container.appendChild(btn);
   });
 }
 
 function gameOver() {
-  document.getElementById('final-score').innerText = gameState.ikedaCount;
+  document.getElementById('final-score').innerText = gameState.defeatedCount;
   showScreen('gameover-screen');
 }
 
@@ -1061,7 +1156,7 @@ function updateUI() {
   else if (e.stunTurns > 0) stTxt = `行動不能(${e.stunTurns})`;
   document.getElementById('e-state').innerText = stTxt;
 
-  document.getElementById('score-count').innerText = gameState.ikedaCount;
+  document.getElementById('score-count').innerText = gameState.defeatedCount;
   document.getElementById('high-score-count').innerText = highScore;
 }
 
@@ -1076,7 +1171,7 @@ function addLog(msg, type = 'sys') {
 
 function showModal(title, desc, btns) {
   document.getElementById('modal-title').innerText = title;
-  document.getElementById('modal-desc').innerText = desc;
+  document.getElementById('modal-desc').innerHTML = desc;
   const container = document.getElementById('modal-btns');
   container.innerHTML = '';
 
